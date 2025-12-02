@@ -78,7 +78,7 @@ def get_forecast(city, unit):
 # ------------ page setup ---------------
 
 st.set_page_config(page_title="Weather Dashboard", layout="wide")
-st.title("Weather Dashboard (Not Fancy Version)")
+st.title("Weather Analytics Dashboard ")
 
 # auto refresh
 if "t0" not in st.session_state:
