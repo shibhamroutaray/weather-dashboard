@@ -113,7 +113,7 @@ if time.time() - last_time > interval:
 
 SAVED = [
     "Bhubaneswar,OD,IN",
-    "Bilaspur,CT,IN",
+    "Bilaspur,CG,IN",
     "Delhi,DL,IN",
     "Kolkata,WB,IN",
     "Mumbai,MH,IN",
