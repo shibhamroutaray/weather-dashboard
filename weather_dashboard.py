@@ -1,117 +1,96 @@
-"""
-Real-Time Weather Analytics Dashboard
--------------------------------------
-A clean and readable Streamlit dashboard that fetches live weather
-and forecast information using the OpenWeatherMap API.
-
-Features:
-- Temperature unit toggle (°C / °F)
-- City comparison mode
-- Wind + rain analytics
-- Interactive charts
-- Map visualization
-- Auto-refresh every 60 seconds
-"""
-
 import os
 import time
 import requests
-from datetime import datetime
-from typing import Optional
-
 import pandas as pd
-import plotly.express as px
 import streamlit as st
+
+from datetime import datetime
 from dotenv import load_dotenv
 
-
-# ============================================================
-# Utility Functions
-# ============================================================
-
+# load env first
 load_dotenv()
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
+# ------------ helpers -------------------
 
-def to_unit(temp_c: float, unit: str) -> float:
-    """Convert Celsius temperature to Fahrenheit if needed."""
-    return temp_c * 9 / 5 + 32 if unit == "°F" else temp_c
+def c_to_f(c, unit):
+    # quick convert
+    if unit == "°F":
+        return (c * 9/5) + 32
+    return c
 
 
-def fetch_current_weather(city: str, unit: str) -> Optional[dict]:
-    """Fetch & return cleaned current weather data for a city."""
+def get_current(city, unit):
     url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric"
 
     try:
-        data = requests.get(url).json()
-    except Exception:
+        r = requests.get(url).json()
+    except:
         return None
 
-    if data.get("cod") != 200:
+    if r.get("cod") != 200:
         return None
+    
+    main = r["main"]
+    w = r["weather"][0]
 
     return {
         "city": city,
-        "temp": to_unit(data["main"]["temp"], unit),
-        "humidity": data["main"]["humidity"],
-        "description": data["weather"][0]["description"],
-        "icon": data["weather"][0]["icon"],
-        "timestamp": datetime.fromtimestamp(data["dt"]),
-        "lat": data["coord"]["lat"],
-        "lon": data["coord"]["lon"],
+        "temp": c_to_f(main["temp"], unit),
+        "humidity": main["humidity"],
+        "desc": w["description"],
+        "icon": w["icon"],
+        "time": datetime.fromtimestamp(r["dt"]),
+        "lat": r["coord"]["lat"],
+        "lon": r["coord"]["lon"]
     }
 
 
-def fetch_forecast(city: str, unit: str) -> Optional[pd.DataFrame]:
-    """Fetch cleaned 5-day forecast (3-hour intervals)."""
+def get_forecast(city, unit):
+    # no fancy error handling
     url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_KEY}&units=metric"
-
     try:
         raw = requests.get(url).json()
-    except Exception:
+    except:
         return None
 
     if raw.get("cod") != "200":
         return None
 
     rows = []
-    for entry in raw["list"]:
-        ts = datetime.fromtimestamp(entry["dt"])
+    for item in raw["list"]:
+        ts = datetime.fromtimestamp(item["dt"])
         rows.append({
             "timestamp": ts,
-            "temperature": to_unit(entry["main"]["temp"], unit),
-            "humidity": entry["main"]["humidity"],
-            "description": entry["weather"][0]["description"],
-            "wind_speed": entry["wind"]["speed"],
-            "precip_prob": entry.get("pop", 0) * 100,
-            "city": city,
+            "temperature": c_to_f(item["main"]["temp"], unit),
+            "humidity": item["main"]["humidity"],
+            "desc": item["weather"][0]["description"],
+            "wind": item["wind"]["speed"],
+            "rain_prob": item.get("pop", 0) * 100,
+            "city": city
         })
-
-    df = pd.DataFrame(rows).set_index("timestamp")
+    
+    df = pd.DataFrame(rows)
+    df = df.set_index("timestamp")
     return df
 
 
-# ============================================================
-# Streamlit Config
-# ============================================================
+# ------------ page setup ---------------
 
-st.set_page_config(page_title="Weather Analytics Dashboard", layout="wide")
-st.title("Weather Analytics Dashboard")
+st.set_page_config(page_title="Weather Dashboard", layout="wide")
+st.title("Weather Dashboard (Not Fancy Version)")
 
-# Auto-refresh every 60 seconds
-interval = 60
-last_time = st.session_state.get("last_time", time.time())
+# auto refresh
+if "t0" not in st.session_state:
+    st.session_state["t0"] = time.time()
 
-if time.time() - last_time > interval:
-    st.session_state["last_time"] = time.time()
+if time.time() - st.session_state["t0"] > 60:
+    st.session_state["t0"] = time.time()
     st.experimental_rerun()
 
+# ----------- sidebar --------------------
 
-# ============================================================
-# Sidebar Controls
-# ============================================================
-
-SAVED = [
+saved = [
     "Bhubaneswar,OD,IN",
     "Bilaspur,CG,IN",
     "Delhi,DL,IN",
@@ -123,162 +102,128 @@ SAVED = [
     "London,GB",
 ]
 
-st.sidebar.header("City Selection")
-st.sidebar.caption("Use a saved city or type your own.")
+st.sidebar.write("City Settings (quick pick or type your own)")
 
-city1 = st.sidebar.selectbox("Primary City", SAVED)
-custom1 = st.sidebar.text_input("Custom Primary City")
-if custom1.strip():
-    city1 = custom1.strip()
+city = st.sidebar.selectbox("City", saved)
+cust = st.sidebar.text_input("Custom City")
+if cust.strip():
+    city = cust.strip()
 
-unit = st.sidebar.radio("Temperature Unit", ["°C", "°F"])
+unit = st.sidebar.radio("Temp Unit", ["°C", "°F"])
 
-compare_mode = st.sidebar.checkbox("Compare with another city")
+compare = st.sidebar.checkbox("Compare w/ another city")
 
-if compare_mode:
-    city2 = st.sidebar.selectbox("Comparison City", SAVED, index=1)
-    custom2 = st.sidebar.text_input("Custom Comparison City")
-    if custom2.strip():
-        city2 = custom2.strip()
+if compare:
+    city2 = st.sidebar.selectbox("Compare City", saved, index=1)
+    c2 = st.sidebar.text_input("Custom Compare City")
+    if c2.strip():
+        city2 = c2.strip()
 
+# ------- fetch ----------
 
-# ============================================================
-# Fetch Data
-# ============================================================
-
-current1 = fetch_current_weather(city1, unit)
-if not current1:
-    st.error(f"City '{city1}' not found.")
+data1 = get_current(city, unit)
+if not data1:
+    st.error("City not found.")
     st.stop()
 
-forecast1 = fetch_forecast(city1, unit)
-if forecast1 is None:
-    st.error("Could not fetch forecast.")
+fc1 = get_forecast(city, unit)
+if fc1 is None:
+    st.error("Forecast error.")
     st.stop()
 
-if compare_mode:
-    current2 = fetch_current_weather(city2, unit)
-    forecast2 = fetch_forecast(city2, unit)
-
-    if not current2 or forecast2 is None:
-        st.error(f"Comparison city '{city2}' not found.")
+if compare:
+    data2 = get_current(city2, unit)
+    fc2 = get_forecast(city2, unit)
+    if not data2 or fc2 is None:
+        st.error(f"Could not load comparison city: {city2}")
         st.stop()
-
-    combined = pd.concat([forecast1, forecast2])
+    both = pd.concat([fc1, fc2])
 else:
-    combined = forecast1.copy()
+    both = fc1.copy()
 
+# ---- ui functions -----
 
-# ============================================================
-# Current Weather Display
-# ============================================================
-
-def render_city(title: str, data: dict):
-    """Small helper to display weather block."""
+def show_city(title, d):
     st.write(f"### {title}")
-
     c1, c2 = st.columns(2)
-    with c1:
-        st.metric(f"Temperature ({unit})", f"{data['temp']:.2f}")
-    with c2:
-        st.metric("Humidity (%)", f"{data['humidity']:.2f}")
+    c1.metric(f"Temp ({unit})", f"{d['temp']:.2f}")
+    c2.metric("Humidity", f"{d['humidity']:.2f}")
 
     c3, c4 = st.columns([1, 3])
-    with c3:
-        st.image(f"http://openweathermap.org/img/wn/{data['icon']}@2x.png", width=110)
-    with c4:
-        st.write(f"Condition: **{data['description'].title()}**")
-        st.write(f"Updated: {data['timestamp']}")
+    c3.image(f"http://openweathermap.org/img/wn/{d['icon']}@2x.png", width=100)
+    c4.write("Condition: **" + d["desc"].title() + "**")
+    c4.write("Updated: " + str(d["time"]))
 
 
-if not compare_mode:
-    st.subheader("Current Weather")
-    render_city(city1, current1)
-else:
-    st.subheader("Current Weather — Comparison")
+# ------ render ---------
+
+if compare:
     colA, colB = st.columns(2)
-    with colA:
-        render_city(city1, current1)
-    with colB:
-        render_city(city2, current2)
+    with colA: show_city(city, data1)
+    with colB: show_city(city2, data2)
+else:
+    show_city(city, data1)
 
-st.markdown("---")
+st.write("---")
 
+# -------- charts ---------
 
-# ============================================================
-# Charts (Comparison-aware)
-# ============================================================
+import plotly.express as px
 
-def line_chart(title, y_field, y_label):
-    st.subheader(title)
+def line(title, col, label):
+    st.write("### " + title)
     fig = px.line(
-        combined,
-        x=combined.index,
-        y=y_field,
-        color="city" if compare_mode else None,
-        labels={y_field: y_label, "timestamp": "Time"},
+        both,
+        x=both.index,
+        y=col,
+        color="city" if compare else None,
+        labels={col: label, "timestamp": "Time"}
     )
     st.plotly_chart(fig, use_container_width=True)
 
+line("Temperature", "temperature", f"Temp ({unit})")
+line("Humidity", "humidity", "Humidity")
+line("Wind Speed", "wind", "Wind (m/s)")
+line("Rain Probability", "rain_prob", "Rain %")
 
-line_chart("Temperature Trend (Next 5 Days)", "temperature", f"Temperature ({unit})")
-line_chart("Humidity Trend", "humidity", "Humidity (%)")
-line_chart("Wind Speed Trend", "wind_speed", "Wind Speed (m/s)")
-line_chart("Precipitation Probability", "precip_prob", "Rain Chance (%)")
+# ------ map --------
 
-
-# ============================================================
-# Map Display
-# ============================================================
-
-st.subheader("City Locations")
-if not compare_mode:
-    map_df = pd.DataFrame({"lat": [current1["lat"]], "lon": [current1["lon"]]})
+st.write("### Locations")
+if compare:
+    df_map = pd.DataFrame({"lat": [data1["lat"], data2["lat"]], "lon": [data1["lon"], data2["lon"]]})
 else:
-    map_df = pd.DataFrame({
-        "lat": [current1["lat"], current2["lat"]],
-        "lon": [current1["lon"], current2["lon"]],
+    df_map = pd.DataFrame({"lat": [data1["lat"]], "lon": [data1["lon"]]})
+
+st.map(df_map)
+
+# -------- table --------
+
+st.write("### Forecast Table")
+st.dataframe(
+    both.style.format({
+        "temperature": "{:.2f}",
+        "humidity": "{:.2f}",
+        "wind": "{:.2f}",
+        "rain_prob": "{:.2f}"
     })
+)
 
-st.map(map_df, zoom=6)
+# -------- insights ---------
 
+st.write("---")
+st.write("## Quick Insights")
 
-# Forecast Table (2-Decimal Formatting)
-
-
-st.subheader("Forecast Data Table")
-
-styled = combined.copy().style.format({
-    "temperature": "{:.2f}",
-    "humidity": "{:.2f}",
-    "wind_speed": "{:.2f}",
-    "precip_prob": "{:.2f}",
-})
-
-st.dataframe(styled)
-
-
-
-# Insights
-
-
-st.markdown("---")
-st.subheader("5-Day Forecast Insights")
-
-def insights(df: pd.DataFrame, label: str):
+def insight(df, label):
     st.write(f"### {label}")
-    st.write(f"- **Avg Temperature**: {df['temperature'].mean():.2f} {unit}")
-    st.write(f"- **Max Temperature**: {df['temperature'].max():.2f} {unit}")
-    st.write(f"- **Min Temperature**: {df['temperature'].min():.2f} {unit}")
-    st.write(f"- **Avg Wind Speed**: {df['wind_speed'].mean():.2f} m/s")
-    st.write(f"- **Rainy Periods (>50%)**: {(df['precip_prob'] > 50).sum()} times")
+    st.write(f"- Avg Temp: {df['temperature'].mean():.2f}")
+    st.write(f"- Max Temp: {df['temperature'].max():.2f}")
+    st.write(f"- Min Temp: {df['temperature'].min():.2f}")
+    st.write(f"- Avg Wind: {df['wind'].mean():.2f}")
+    st.write(f"- Rain>50%: {(df['rain_prob'] > 50).sum()} times")
 
-
-if not compare_mode:
-    insights(forecast1, f"{city1} — 5-Day Summary")
-else:
+if compare:
     col1, col2 = st.columns(2)
-    with col1:
-        insights(forecast1, city1)
-    with col2:
-        insights(forecast2, city2)
+    with col1: insight(fc1, city)
+    with col2: insight(fc2, city2)
+else:
+    insight(fc1, city)
