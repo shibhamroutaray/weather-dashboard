@@ -86,7 +86,7 @@ if "t0" not in st.session_state:
 
 if time.time() - st.session_state["t0"] > 60:
     st.session_state["t0"] = time.time()
-    st.experimental_rerun()
+    st.rerun()
 
 # ----------- sidebar --------------------
 
